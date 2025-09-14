@@ -6,23 +6,8 @@ if (!(Test-Path -Path 'C:\Temp')) { New-Item -ItemType Directory -Path 'C:\Temp'
 Add-Content $log "--- Démarrage installation ---"
 Write-Output "=== Script CustomScriptExtension démarré ==="
 
-# --- Fonction téléchargement ---
-function Download-File($url, $path, $name) {
-    try {
-        if (!(Test-Path -Path 'C:\Temp')) { New-Item -ItemType Directory -Path 'C:\Temp' | Out-Null }
-        Add-Content $log "Téléchargement $name depuis $url"
-        Invoke-WebRequest -Uri $url -OutFile $path -UseBasicParsing
-        Add-Content $log "$name téléchargé -> $path"
-        Write-Output "$name téléchargé"
-    } catch {
-        Add-Content $log "[ERREUR] $name: $($_.Exception.Message)"
-        exit 1
-    }
-}
-
 # --- Fonction installation MSI ---
 function Install-MSI($path, $logfile, $component) {
-    if (!(Test-Path -Path 'C:\Temp')) { New-Item -ItemType Directory -Path 'C:\Temp' | Out-Null }
     if (!(Test-Path $path)) {
         Add-Content $log "[ERREUR] $component introuvable à $path"
         exit 1
@@ -45,7 +30,6 @@ function Install-MSI($path, $logfile, $component) {
 
 # --- Fonction spécifique ODBC ---
 function Install-ODBC($zipPath, $zipExpected, $component) {
-    if (!(Test-Path -Path 'C:\Temp')) { New-Item -ItemType Directory -Path 'C:\Temp' | Out-Null }
     try {
         Add-Content $log "Vérification checksum ZIP..."
         $zipActual = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLower()
@@ -71,19 +55,26 @@ function Install-ODBC($zipPath, $zipExpected, $component) {
 }
 
 # --- Téléchargements parallèles ---
-$jobs = @()
 $downloads = @(
     @{ Name = "Gateway"; Url = "https://go.microsoft.com/fwlink/?LinkId=2116849&clcid=0x409"; Path = "C:\Temp\OnPremiseGatewayInstaller.exe" },
     @{ Name = "IR"; Url = "https://download.microsoft.com/download/e/4/7/e4771905-1079-445b-8bf9-8a1a075d8a10/IntegrationRuntime_5.57.9350.2.msi"; Path = "C:\Temp\IntegrationRuntime.msi" },
     @{ Name = "ODBC"; Url = "https://databricks-bi-artifacts.s3.us-east-2.amazonaws.com/simbaspark-drivers/odbc/2.9.2/SimbaSparkODBC-2.9.2.1008-Windows-64bit.zip"; Path = "C:\Temp\SimbaSparkODBC.zip" }
 )
 
+$jobs = @()
 foreach ($d in $downloads) {
     $jobs += Start-Job -Name $d.Name -ScriptBlock {
-        param($u, $p)
-        if (!(Test-Path -Path 'C:\Temp')) { New-Item -ItemType Directory -Path 'C:\Temp' | Out-Null }
-        Invoke-WebRequest -Uri $u -OutFile $p -UseBasicParsing
-    } -ArgumentList $d.Url, $d.Path
+        param($u, $p, $n, $logFile)
+        try {
+            if (!(Test-Path -Path 'C:\Temp')) { New-Item -ItemType Directory -Path 'C:\Temp' | Out-Null }
+            Add-Content $logFile "Téléchargement $n depuis $u"
+            Invoke-WebRequest -Uri $u -OutFile $p -UseBasicParsing
+            Add-Content $logFile "$n téléchargé -> $p"
+        } catch {
+            Add-Content $logFile "[ERREUR] $n: $($_.Exception.Message)"
+            exit 1
+        }
+    } -ArgumentList $d.Url, $d.Path, $d.Name, $log
 }
 
 $jobs | Wait-Job | Receive-Job
@@ -95,4 +86,9 @@ Install-MSI "C:\Temp\OnPremiseGatewayInstaller.exe" "C:\Temp\gateway_install.log
 Install-MSI "C:\Temp\IntegrationRuntime.msi" "C:\Temp\ir_install.log" "Integration Runtime"
 Install-ODBC "C:\Temp\SimbaSparkODBC.zip" "86D295D1A1C1FACA9C05CE6B0D62B9DA5078F12635A494543B7182E0EDF7E4CD" "Spark ODBC"
 
+# --- Nettoyage ---
+Remove-Item "C:\Temp\OnPremiseGatewayInstaller.exe","C:\Temp\IntegrationRuntime.msi","C:\Temp\SimbaSparkODBC.zip" -Force -ErrorAction SilentlyContinue
+
 Add-Content $log "--- Installation terminée avec succès ---"
+Write-Output "=== Script terminé avec succès ==="
+exit 0
