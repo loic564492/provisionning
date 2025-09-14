@@ -1,6 +1,7 @@
 $ErrorActionPreference = 'Stop'
 $log = 'C:\Temp\install_debug.log'
 
+# Toujours recréer le dossier Temp
 if (!(Test-Path -Path 'C:\Temp')) { New-Item -ItemType Directory -Path 'C:\Temp' | Out-Null }
 Add-Content $log "--- Démarrage installation ---"
 Write-Output "=== Script CustomScriptExtension démarré ==="
@@ -8,6 +9,7 @@ Write-Output "=== Script CustomScriptExtension démarré ==="
 # --- Fonction téléchargement ---
 function Download-File($url, $path, $name) {
     try {
+        if (!(Test-Path -Path 'C:\Temp')) { New-Item -ItemType Directory -Path 'C:\Temp' | Out-Null }
         Add-Content $log "Téléchargement $name depuis $url"
         Invoke-WebRequest -Uri $url -OutFile $path -UseBasicParsing
         Add-Content $log "$name téléchargé -> $path"
@@ -20,6 +22,7 @@ function Download-File($url, $path, $name) {
 
 # --- Fonction installation MSI ---
 function Install-MSI($path, $logfile, $component) {
+    if (!(Test-Path -Path 'C:\Temp')) { New-Item -ItemType Directory -Path 'C:\Temp' | Out-Null }
     if (!(Test-Path $path)) {
         Add-Content $log "[ERREUR] $component introuvable à $path"
         exit 1
@@ -32,18 +35,17 @@ function Install-MSI($path, $logfile, $component) {
     $process = Start-Process msiexec.exe -ArgumentList $arguments -Wait -PassThru
     if ($process.ExitCode -eq 0) {
         Add-Content $log "$component installé avec succès"
-        Write-Output "$component installé avec succès"
     } elseif ($process.ExitCode -eq 3010) {
-        Add-Content $log "$component installé avec succès (reboot requis)"
-        Write-Output "$component installé avec succès (reboot requis)"
+        Add-Content $log "$component installé (reboot requis)"
     } else {
-        Add-Content $log "[ERREUR] $component a échoué avec code $($process.ExitCode)"
+        Add-Content $log "[ERREUR] $component code $($process.ExitCode)"
         exit $process.ExitCode
     }
 }
 
-# --- Fonction spécifique : Spark ODBC ---
+# --- Fonction spécifique ODBC ---
 function Install-ODBC($zipPath, $zipExpected, $component) {
+    if (!(Test-Path -Path 'C:\Temp')) { New-Item -ItemType Directory -Path 'C:\Temp' | Out-Null }
     try {
         Add-Content $log "Vérification checksum ZIP..."
         $zipActual = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLower()
@@ -62,14 +64,13 @@ function Install-ODBC($zipPath, $zipExpected, $component) {
         Copy-Item -Path (Join-Path $src '*') -Destination $dst -Recurse -Force
 
         Add-Content $log "Spark ODBC OK"
-        Write-Output "Spark ODBC installé avec succès"
     } catch {
         Add-Content $log ("[ERREUR] ODBC: " + $_.Exception.Message)
         exit 1
     }
 }
 
-# --- Téléchargements en parallèle ---
+# --- Téléchargements parallèles ---
 $jobs = @()
 $downloads = @(
     @{ Name = "Gateway"; Url = "https://go.microsoft.com/fwlink/?LinkId=2116849&clcid=0x409"; Path = "C:\Temp\OnPremiseGatewayInstaller.exe" },
@@ -80,35 +81,18 @@ $downloads = @(
 foreach ($d in $downloads) {
     $jobs += Start-Job -Name $d.Name -ScriptBlock {
         param($u, $p)
+        if (!(Test-Path -Path 'C:\Temp')) { New-Item -ItemType Directory -Path 'C:\Temp' | Out-Null }
         Invoke-WebRequest -Uri $u -OutFile $p -UseBasicParsing
     } -ArgumentList $d.Url, $d.Path
 }
 
-try {
-    $jobs | Wait-Job | Receive-Job -ErrorAction Stop
-    Write-Output "Téléchargements terminés"
-    Add-Content $log "Téléchargements terminés"
-} catch {
-    Add-Content $log "[ERREUR] Téléchargement: $($_.Exception.Message)"
-    exit 1
-} finally {
-    $jobs | Remove-Job
-}
+$jobs | Wait-Job | Receive-Job
+$jobs | Remove-Job
+Add-Content $log "Téléchargements terminés"
 
 # --- Installations ---
 Install-MSI "C:\Temp\OnPremiseGatewayInstaller.exe" "C:\Temp\gateway_install.log" "Power BI Gateway"
 Install-MSI "C:\Temp\IntegrationRuntime.msi" "C:\Temp\ir_install.log" "Integration Runtime"
 Install-ODBC "C:\Temp\SimbaSparkODBC.zip" "86D295D1A1C1FACA9C05CE6B0D62B9DA5078F12635A494543B7182E0EDF7E4CD" "Spark ODBC"
 
-# --- Nettoyage (on garde les logs) ---
-try {
-    Remove-Item C:\Temp\*.msi,C:\Temp\*.exe,C:\Temp\*.zip -Force -ErrorAction SilentlyContinue
-    Remove-Item C:\Temp\SparkODBC -Recurse -Force -ErrorAction SilentlyContinue
-    Add-Content $log "Nettoyage terminé"
-    Write-Output "Nettoyage terminé"
-} catch {
-    Add-Content $log "Erreur pendant le nettoyage: $($_.Exception.Message)"
-}
-
 Add-Content $log "--- Installation terminée avec succès ---"
-Write-Output "=== Installation terminée avec succès ==="
