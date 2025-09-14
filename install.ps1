@@ -64,20 +64,21 @@ $downloads = @(
 $jobs = @()
 foreach ($d in $downloads) {
     $jobs += Start-Job -Name $d.Name -ScriptBlock {
-        param($u, $p, $n, $logFile)
+        param($u, $p, $n)
         try {
             if (!(Test-Path -Path 'C:\Temp')) { New-Item -ItemType Directory -Path 'C:\Temp' | Out-Null }
-            Add-Content $logFile "Téléchargement $n depuis $u"
+            Write-Output "[$n] Téléchargement depuis $u"
             Invoke-WebRequest -Uri $u -OutFile $p -UseBasicParsing
-            Add-Content $logFile "$n téléchargé -> $p"
+            Write-Output "[$n] Téléchargement terminé -> $p"
         } catch {
-            Add-Content $logFile "[ERREUR] $n: $($_.Exception.Message)"
+            Write-Output "[$n] [ERREUR] $($_.Exception.Message)"
             exit 1
         }
-    } -ArgumentList $d.Url, $d.Path, $d.Name, $log
+    } -ArgumentList $d.Url, $d.Path, $d.Name
 }
 
-$jobs | Wait-Job | Receive-Job
+# Récupérer la sortie et la logger
+$jobs | Wait-Job | Receive-Job | ForEach-Object { Add-Content $log $_ }
 $jobs | Remove-Job
 Add-Content $log "Téléchargements terminés"
 
