@@ -1,8 +1,9 @@
 $ErrorActionPreference = 'Stop'
 $log = 'C:\Temp\install_debug.log'
 
-# Toujours recréer le dossier Temp
-if (!(Test-Path -Path 'C:\Temp')) { New-Item -ItemType Directory -Path 'C:\Temp' | Out-Null }
+# --- Préparer le répertoire Temp ---
+if (Test-Path 'C:\Temp') { Remove-Item 'C:\Temp' -Recurse -Force -ErrorAction SilentlyContinue }
+New-Item -Path 'C:\Temp' -ItemType Directory -Force | Out-Null
 Add-Content $log "--- Démarrage installation ---"
 Write-Output "=== Script CustomScriptExtension démarré ==="
 
@@ -29,7 +30,7 @@ function Install-MSI($path, $logfile, $component) {
 }
 
 # --- Fonction spécifique ODBC ---
-function Install-ODBC($zipPath, $zipExpected, $component) {
+function Install-ODBC($zipPath, $zipExpected, $msiExpected, $component) {
     try {
         Add-Content $log "Vérification checksum ZIP..."
         $zipActual = (Get-FileHash $zipPath -Algorithm SHA256).Hash.ToLower()
@@ -38,6 +39,11 @@ function Install-ODBC($zipPath, $zipExpected, $component) {
         Expand-Archive -Path $zipPath -DestinationPath "C:\Temp\SparkODBC" -Force
         $msi = Get-ChildItem "C:\Temp\SparkODBC" -Recurse -Filter *.msi | Select-Object -First 1
         if (-not $msi) { throw "Aucun MSI trouvé dans ODBC ZIP" }
+
+        # Vérif checksum MSI
+        Add-Content $log "Vérification checksum MSI..."
+        $msiActual = (Get-FileHash $msi.FullName -Algorithm SHA256).Hash.ToLower()
+        if ($msiActual -ne $msiExpected.ToLower()) { throw "Checksum MSI invalide" }
 
         Install-MSI $msi.FullName "C:\Temp\spark_odbc_install.log" $component
 
@@ -64,28 +70,27 @@ $downloads = @(
 $jobs = @()
 foreach ($d in $downloads) {
     $jobs += Start-Job -Name $d.Name -ScriptBlock {
-        param($u, $p, $n)
+        param($u, $p, $n, $logFile)
         try {
             if (!(Test-Path -Path 'C:\Temp')) { New-Item -ItemType Directory -Path 'C:\Temp' | Out-Null }
-            Write-Output "[$n] Téléchargement depuis $u"
+            Add-Content $logFile "Téléchargement $n depuis $u"
             Invoke-WebRequest -Uri $u -OutFile $p -UseBasicParsing
-            Write-Output "[$n] Téléchargement terminé -> $p"
+            Add-Content $logFile "$n téléchargé -> $p"
         } catch {
-            Write-Output "[$n] [ERREUR] $($_.Exception.Message)"
+            Add-Content $logFile "[ERREUR] $n: $($_.Exception.Message)"
             exit 1
         }
-    } -ArgumentList $d.Url, $d.Path, $d.Name
+    } -ArgumentList $d.Url, $d.Path, $d.Name, $log
 }
 
-# Récupérer la sortie et la logger
-$jobs | Wait-Job | Receive-Job | ForEach-Object { Add-Content $log $_ }
+$jobs | Wait-Job | Receive-Job
 $jobs | Remove-Job
 Add-Content $log "Téléchargements terminés"
 
 # --- Installations ---
 Install-MSI "C:\Temp\OnPremiseGatewayInstaller.exe" "C:\Temp\gateway_install.log" "Power BI Gateway"
 Install-MSI "C:\Temp\IntegrationRuntime.msi" "C:\Temp\ir_install.log" "Integration Runtime"
-Install-ODBC "C:\Temp\SimbaSparkODBC.zip" "86D295D1A1C1FACA9C05CE6B0D62B9DA5078F12635A494543B7182E0EDF7E4CD" "Spark ODBC"
+Install-ODBC "C:\Temp\SimbaSparkODBC.zip" "86D295D1A1C1FACA9C05CE6B0D62B9DA5078F12635A494543B7182E0EDF7E4CD" "76E76E472480B811B8C38A641ED4D3B323D87647D29A2E59361AA45BD4FED923" "Spark ODBC"
 
 # --- Nettoyage ---
 Remove-Item "C:\Temp\OnPremiseGatewayInstaller.exe","C:\Temp\IntegrationRuntime.msi","C:\Temp\SimbaSparkODBC.zip" -Force -ErrorAction SilentlyContinue
