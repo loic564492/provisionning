@@ -4,8 +4,10 @@ $ErrorActionPreference = 'Stop'
 $global:LogMain = 'C:\Temp\install_debug.log'
 $DownloadDir = 'C:\Temp'
 if (!(Test-Path -Path $DownloadDir)) { New-Item -ItemType Directory -Force -Path $DownloadDir | Out-Null }
-Clear-Content -Path $LogMain -ErrorAction SilentlyContinue
-Add-Content $LogMain "--- Démarrage installation ---"
+
+# Initialise proprement le log
+if (!(Test-Path $LogMain)) { New-Item -ItemType File -Path $LogMain -Force | Out-Null }
+Set-Content -Path $LogMain -Value "--- Démarrage installation ---"
 Write-Output "=== Script CustomScriptExtension démarré ==="
 
 # === Checksums attendus (mettre "" ou "0" pour désactiver) ===
@@ -76,8 +78,8 @@ $Jobs = foreach ($Download in $Downloads) {
             Invoke-WebRequest -Uri $DownloadUrl -OutFile $DownloadPath -UseBasicParsing
             Add-Content $MainLog "$ComponentName téléchargé -> $DownloadPath"
         } catch {
-            Add-Content $MainLog "[ERREUR] $ComponentName: $($_.Exception.Message)"
-            exit 1
+            Add-Content $MainLog "[ERREUR] Téléchargement $ComponentName : $($_.Exception.Message)"
+            throw
         }
     } -ArgumentList $Download.Url, $Download.Path, $Download.ComponentName, $LogMain
 }
@@ -104,5 +106,7 @@ Write-Output "=== Script terminé avec succès ==="
 
 if ($global:RebootNeeded) {
     Add-Content $LogMain "Redémarrage requis - planifiez un reboot manuel ou automatique"
+    # Pour automatiser complètement : décommente la ligne ci-dessous
+    # Restart-Computer -Force
 }
 exit 0
