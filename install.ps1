@@ -70,14 +70,14 @@ $downloads = @(
 $jobs = @()
 foreach ($d in $downloads) {
     $jobs += Start-Job -Name $d.Name -ScriptBlock {
-        param($u, $p, $n, $logFile)
+        param($u, $p, $n, $logFilePath)
         try {
             if (!(Test-Path -Path 'C:\Temp')) { New-Item -ItemType Directory -Path 'C:\Temp' | Out-Null }
-            Add-Content $logFile "Téléchargement $n depuis $u"
+            Add-Content $logFilePath "Téléchargement $n depuis $u"
             Invoke-WebRequest -Uri $u -OutFile $p -UseBasicParsing
-            Add-Content $logFile "$n téléchargé -> $p"
+            Add-Content $logFilePath "$n téléchargé -> $p"
         } catch {
-            Add-Content $logFile "[ERREUR] $n: $($_.Exception.Message)"
+            Add-Content $logFilePath "[ERREUR] $n: $($_.Exception.Message)"
             exit 1
         }
     } -ArgumentList $d.Url, $d.Path, $d.Name, $log
