@@ -49,8 +49,14 @@ function Install-MSI($MsiPath, $LogFile, $ComponentName) {
 
 function Install-ODBC($ZipPath, $ComponentName) {
     Verify-Checksum $ZipPath $Checksums["SimbaSparkODBC.zip"] $ComponentName
-    Expand-Archive -Path $ZipPath -DestinationPath "$DownloadDir\SparkODBC" -Force
-    $MsiFile = Get-ChildItem "$DownloadDir\SparkODBC" -Recurse -Filter *.msi | Select-Object -First 1
+    
+    # Décompression robuste avec System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $ExtractPath = "$DownloadDir\SparkODBC"
+    if (Test-Path $ExtractPath) { Remove-Item -Recurse -Force $ExtractPath }
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($ZipPath, $ExtractPath)
+
+    $MsiFile = Get-ChildItem $ExtractPath -Recurse -Filter *.msi | Select-Object -First 1
     if (-not $MsiFile) { throw "Aucun MSI trouvé dans ODBC ZIP" }
     Copy-Item $MsiFile.FullName "$DownloadDir\SimbaSparkODBC.msi" -Force
     Verify-Checksum "$DownloadDir\SimbaSparkODBC.msi" $Checksums["SimbaSparkODBC.msi"] $ComponentName
